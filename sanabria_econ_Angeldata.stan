@@ -76,31 +76,32 @@ for (si in 1:Nr)
 model {
 
 //intercept priors
-t_int ~ normal(0.16,5);
-w_int ~ normal(1.05,5);
-u_int ~ normal(2.95,5); 
-H_int ~ normal(1,5);
-sigma ~ inv_gamma(1,1); 
+t_int ~ normal(0,3);
+w_int ~ normal(0,3);
+u_int ~ normal(0,3); 
+H_int ~ normal(0,3);
+sigma ~ normal(0,1) T[0,]; 
 
 //beta priors
-t_beta ~ normal(0,2);
-w_beta ~ normal(0,2);
-u_beta ~ normal(0,2); 
-H_beta ~ normal(0,2);
+t_beta ~ normal(0,1);
+w_beta ~ normal(0,1);
+u_beta ~ normal(0,1); 
+H_beta ~ normal(0,1);
 
 //rme priors
-t_int_rme ~ normal(0,2);
-w_int_rme ~ normal(0,2);
-u_int_rme ~ normal(0,2); 
-H_int_rme ~ normal(0,2);
+t_int_rme ~ normal(0,1);
+w_int_rme ~ normal(0,1);
+u_int_rme ~ normal(0,1); 
+H_int_rme ~ normal(0,1);
 
-t_beta_rme ~ normal(0,2);
-w_beta_rme ~ normal(0,2);
-u_beta_rme ~ normal(0,2); 
-H_beta_rme ~ normal(0,2);
+t_beta_rme ~ normal(0,1);
+w_beta_rme ~ normal(0,1);
+u_beta_rme ~ normal(0,1); 
+H_beta_rme ~ normal(0,1);
 
 //likelihood
-y ~ normal(row_Bn,row_sigma) T[0,];
+y ~ normal(row_Bn,row_sigma) T[0,]; 
+//y ~ log_normal(row_Bn,row_sigma); 
 
 }
 
