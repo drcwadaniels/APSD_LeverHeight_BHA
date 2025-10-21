@@ -1,0 +1,844 @@
+---
+title: "Affordances Behavioral Econ Analysis following Sanabria (in prep)"
+author: "Carter Daniels"
+date: "6/10/2024"
+output: html_document
+---
+
+```{r, include=FALSE}
+rm(list=ls())
+#import libraries
+library(tidyverse)
+library(lme4)
+library(stats)
+library(shinystan)
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
+library(ggridges)
+library(patchwork)
+library(ggtext)
+library(ggprism)
+library(Hmisc)
+library(ggthemes)
+
+```
+
+
+```{r, include=FALSE}
+
+#datapath and functions
+
+data.path <- "C:\\Users\\carte\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanabria\\"
+
+
+Sanabria_BHEcon <- function(t,z,w,Qplus,PR,RM,ST) 
+{
+  rho <- t+(PR/(w*RM))
+  demand <- Qplus*((z+t*rho)/(z+(rho^2)))
+  Bn <- ((demand*PR)/(RM*ST))/60
+  return(list(demand,Bn))
+
+}
+
+Sanabria_BHEcon_Lazy <- function(t,z,w,Qplus,PR,RM,ST) 
+{
+  rho <- t+(PR/(w*RM))
+  demand <- (Qplus*z)/(z+(rho^2))
+  Bn <- ((demand*PR)/(RM*ST))/60
+  return(list(demand,Bn))
+
+}
+
+```
+
+```{r, include=FALSE}
+
+tbt_matrices <- read.csv(paste0(data.path,"AH_LongForm_Carter.csv"))
+
+
+#recode subjects
+tbt_matrices$reCode_Subject <- 1
+i=0
+for (subj in unique(tbt_matrices$Rat))
+{
+  i = i + 1
+  tbt_matrices$reCode_Subject[tbt_matrices$Rat==subj]<-i
+}
+
+tbt_matrices$LeverRecode <- tbt_matrices$LeverHeight - min(tbt_matrices$LeverHeight)
+
+tbt_matrices$RewMag <- 1
+
+tbt_matrices$CatLH <- 0
+tbt_matrices$CatLH[tbt_matrices$LeverHeight==11]<-1
+tbt_matrices$CatLH[tbt_matrices$LeverHeight==18]<-2
+
+
+tbt_matrices$cumTime <- ave(tbt_matrices$Time,tbt_matrices$Rat,
+                                tbt_matrices$Session,tbt_matrices$LeverHeight,
+                                FUN=cumsum)
+
+#for now only include through the last non zero but not necessairily completed PR
+tbt_matrices <- tbt_matrices[tbt_matrices$Completed==1,]
+tbt_matrices <- tbt_matrices[tbt_matrices$Local.Rate!=0,]
+tbt_matrices$SessionTime <- 30
+
+#tbt_matrices <- tbt_matrices[tbt_matrices$LeverRecode==10,]
+#tbt_matrices <- tbt_matrices[tbt_matrices$CatLH==1,]
+
+OverSessions <- tbt_matrices %>% group_by(reCode_Subject,CatLH,PR,RewMag) %>% 
+  summarise(across(.cols=c(Local.Rate),.fns=c(median,sd)))
+OverSessions$Local.Rate_3 <- OverSessions$Local.Rate_2 / OverSessions$Local.Rate_1
+colnames(OverSessions)[colnames(OverSessions)=="Local.Rate_1"] <- "Local.Rate"
+OverSessions$SessionTime <- 30
+
+```
+
+
+# Individual Data (scatter plots)
+
+
+```{r, fig.width = 24, fig.height = 24, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+
+ggplot() + 
+  geom_point(data=tbt_matrices, aes(x=PR,y=Local.Rate,color=as.factor(CatLH)),size=2) + 
+  geom_line(data=OverSessions,aes(x=PR,y=Local.Rate,color=as.factor(CatLH)),size=3) +
+  ylab("Local Rate") + 
+  xlab("Progressive Ratio")+
+  facet_wrap(~reCode_Subject)
+
+ggplot() + 
+  geom_line(data=OverSessions,aes(x=PR,y=Local.Rate_2,color=as.factor(CatLH)),size=3) +
+  ylab("Standard Deviation") + 
+  xlab("Progressive Ratio") + 
+  facet_wrap(~reCode_Subject)
+
+ggplot() + 
+  geom_line(data=OverSessions,aes(x=PR,y=Local.Rate_3,color=as.factor(CatLH)),size=3) +
+  ylab("Coefficient of Variation") + 
+  xlab("Progressive Ratio") + 
+  facet_wrap(~reCode_Subject)
+
+```
+
+
+
+```{r, include=FALSE}
+
+sanabria_econ <- "
+
+// stan code for sanabria behavioral econ
+
+data {
+
+ int<lower=1> Nr; // number of data points
+ int<lower=1> Ns; // number of subjects
+ vector[Nr] y; //Local Rate stream
+ int[Nr] s; //subject stream
+ vector<lower=0>[Nr] Pr_req; //Programemd PR stream
+ vector<lower=0>[Nr] LHStream; //Lever height stream
+ vector<lower=1>[Nr] RewMagStream; //Reward Magnitude Stream
+ vector<lower=0>[Nr] SessionTime; //TotalSessionTime
+ real minTau; //min Tau
+}
+
+parameters {
+
+real t_mu;
+real w_mu;
+real z_mu;
+real Qlogit_mu;
+real sigma_mu;
+
+real t_delta11_mu;
+real w_delta11_mu;
+real z_delta11_mu;
+real Qlogit_delta11_mu;
+real sigma_delta11_mu;
+
+real t_delta18_mu;
+real w_delta18_mu;
+real z_delta18_mu;
+real Qlogit_delta18_mu;
+real sigma_delta18_mu; 
+
+real<lower=0> t_var;
+real<lower=0> w_var;
+real<lower=0> z_var;
+real<lower=0> Qlogit_var;
+real<lower=0> sigma_var;
+
+real<lower=0> t_delta11_var;
+real<lower=0> w_delta11_var;
+real<lower=0> z_delta11_var;
+real<lower=0> Qlogit_delta11_var;
+real<lower=0> sigma_delta11_var;
+
+real<lower=0> t_delta18_var;
+real<lower=0> w_delta18_var;
+real<lower=0> z_delta18_var;
+real<lower=0> Qlogit_delta18_var;
+real<lower=0> sigma_delta18_var; 
+
+
+//intercept_rme;
+vector[Ns] t_int_rme; 
+vector[Ns] w_int_rme;
+vector[Ns] z_int_rme;
+vector[Ns] Qlogit_int_rme; 
+vector[Ns] sigma_int_rme;
+
+//lever height rme;
+vector[Ns] t_beta_11_rme;
+vector[Ns] w_beta_11_rme;
+vector[Ns] z_beta_11_rme;
+vector[Ns] Qlogit_beta_11_rme; 
+vector[Ns] sigma_beta_11_rme;
+
+vector[Ns] t_beta_18_rme;
+vector[Ns] w_beta_18_rme;
+vector[Ns] z_beta_18_rme;
+vector[Ns] Qlogit_beta_18_rme;
+vector[Ns] sigma_beta_18_rme;
+
+}
+
+transformed parameters {
+
+vector[Nr] row_Bn; 
+vector<lower=0>[Nr] row_Qplus;
+vector<lower=0>[Nr] row_upper; 
+vector<lower=0>[Nr] row_rho; 
+vector<lower=0>[Nr] row_demand;
+vector<lower=0>[Nr] row_sigma; 
+vector<lower=0>[Nr] t;
+vector<lower=0>[Nr] w;
+vector<lower=0>[Nr] z;
+vector<lower=0,upper=1>[Nr] Qprop; 
+
+for (si in 1:Nr)
+{
+  if (LHStream[si] == 0)
+  {
+    t[si] = exp((t_int_rme[s[si]]))+minTau;
+    w[si] = exp((w_int_rme[s[si]]));
+    z[si] = exp((z_int_rme[s[si]]));
+    Qprop[si] = exp(Qlogit_int_rme[s[si]])/(1+exp(Qlogit_int_rme[s[si]])); 
+    row_sigma[si] = exp((sigma_int_rme[s[si]]));
+
+  }
+  else if (LHStream[si] == 1)
+  {
+    t[si] = exp((t_int_rme[s[si]])+((t_beta_11_rme[s[si]])*1))+minTau;
+    w[si] = exp((w_int_rme[s[si]])+((w_beta_11_rme[s[si]])*1));
+    z[si] = exp((z_int_rme[s[si]])+((z_beta_11_rme[s[si]])*1));
+    Qprop[si] = exp((Qlogit_int_rme[s[si]])+((Qlogit_beta_11_rme[s[si]])*1))/(1+exp((Qlogit_int_rme[s[si]])+((Qlogit_beta_11_rme[s[si]])*1)));
+    row_sigma[si] = exp((sigma_int_rme[s[si]])+(sigma_beta_11_rme[s[si]]*1));
+
+
+  }
+  else if (LHStream[si] == 2)
+  {
+    t[si] = exp((t_int_rme[s[si]])+((t_beta_11_rme[s[si]])*1)+((t_beta_18_rme[s[si]])*1))+minTau;
+    w[si] = exp((w_int_rme[s[si]])+((w_beta_11_rme[s[si]])*1)+((w_beta_18_rme[s[si]])*1));
+    z[si] = exp((z_int_rme[s[si]])+((z_beta_11_rme[s[si]])*1)+((z_beta_18_rme[s[si]])*1));
+    Qprop[si] = exp((Qlogit_int_rme[s[si]])+((Qlogit_beta_11_rme[s[si]])*1)+((Qlogit_beta_18_rme[s[si]])*1))/(1+exp((Qlogit_int_rme[s[si]])+(( Qlogit_beta_11_rme[s[si]])*1)+((Qlogit_beta_18_rme[s[si]])*1)));
+    row_sigma[si] = exp((sigma_int_rme[s[si]])+(sigma_beta_11_rme[s[si]]*1)+(sigma_beta_18_rme[s[si]]*1));
+    
+  }
+
+  row_rho[si] = t[si]+(Pr_req[si]/(w[si]*RewMagStream[si]));
+  
+  row_upper[si] = SessionTime[si] * ((z[si]*pow(1/t[si],2)+1)/((z[si]*(1/t[si]))+t[si])); #should be able to remove this
+  
+  row_Qplus[si] =  row_upper[si] * Qprop[si]; 
+  
+  row_demand[si] = (row_Qplus[si]*z[si])/(z[si]+pow(row_rho[si],2)); #rewrite Qn based on Eq. 4
+
+  row_Bn[si] = ((row_demand[si]*Pr_req[si])/(RewMagStream[si]*SessionTime[si]))/60; #incorporate ceiling, remove constraint on Q+
+
+}
+
+
+
+}
+
+model {
+
+
+//hyper-level parameters
+//means
+t_mu ~ normal(0,10);
+w_mu ~ normal(0,10);
+z_mu ~ normal(0,10);
+Qlogit_mu ~ normal(0,10);
+sigma_mu~ normal(0,10) ;
+
+t_delta11_mu~ normal(0,10);
+w_delta11_mu~ normal(0,10);
+z_delta11_mu~ normal(0,10);
+Qlogit_delta11_mu~ normal(0,10);
+sigma_delta11_mu~ normal(0,10);
+
+t_delta18_mu~ normal(0,10);
+w_delta18_mu~ normal(0,10);
+z_delta18_mu~ normal(0,10);
+Qlogit_delta18_mu~ normal(0,10);
+sigma_delta18_mu~ normal(0,10);
+
+//variances
+t_var~inv_gamma(1,1);
+w_var~inv_gamma(1,1);
+z_var~inv_gamma(1,1);
+Qlogit_var~inv_gamma(1,1);
+sigma_var~inv_gamma(1,1);
+
+t_delta11_var~inv_gamma(1,1);
+w_delta11_var~inv_gamma(1,1);
+z_delta11_var~inv_gamma(1,1);
+Qlogit_delta11_var~inv_gamma(1,1);
+sigma_delta11_var~inv_gamma(1,1);
+
+
+t_delta18_var~inv_gamma(1,1);
+w_delta18_var~inv_gamma(1,1);
+z_delta18_var~inv_gamma(1,1);
+Qlogit_delta18_var~inv_gamma(1,1);
+sigma_delta18_var~inv_gamma(1,1);
+
+
+//subject level priors
+t_int_rme ~ normal(t_mu,t_var);
+w_int_rme ~ normal(w_mu,w_var);
+z_int_rme ~ normal(z_mu,z_var); 
+Qlogit_int_rme ~ normal(Qlogit_mu,Qlogit_var);
+sigma_int_rme ~ normal(sigma_mu,sigma_var);
+
+
+t_beta_11_rme ~ normal(t_delta11_mu,t_delta11_var);
+w_beta_11_rme ~ normal(w_delta11_mu,w_delta11_var);
+z_beta_11_rme ~ normal(z_delta11_mu,z_delta11_var); 
+Qlogit_beta_11_rme ~ normal(Qlogit_delta11_mu,Qlogit_delta11_var);
+sigma_beta_11_rme ~ normal(sigma_delta11_mu,sigma_delta11_var);
+
+t_beta_18_rme ~ normal(t_delta18_mu,t_delta18_var);
+w_beta_18_rme ~ normal(w_delta18_mu,w_delta18_var);
+z_beta_18_rme ~ normal(z_delta18_mu,z_delta18_var); 
+Qlogit_beta_18_rme ~ normal(Qlogit_delta18_mu,Qlogit_delta18_var);
+sigma_beta_18_rme ~ normal(sigma_delta18_mu,sigma_delta18_var);
+
+//likelihood
+y ~ normal(log(row_Bn),row_sigma); //sigma
+
+}
+
+
+"
+
+#write_stan_file(sanabria_econ,
+#                dir=data.path,
+#                basename="sanabria_econ_Angeldata_revFconstrained_Altsubj.stan",
+#                force_overwrite = TRUE)
+
+#compile model
+#mod <- cmdstan_model(stan_file=file.path(paste0(data.path,
+#                                                "sanabria_econ_Angeldata_revFconstrained_Altsubj.stan")))
+
+##got divergent transitions
+## potentially try making every rme scaled as described here: 
+# https://betanalpha.github.io/assets/case_studies/divergences_and_bias.html#7_original_computing_environment
+# mu + tau*rme; rme ~N(0,1); tau ~ half-cauchy(0,5)
+#also consider modeling covariance
+#https://betanalpha.github.io/assets/case_studies/divergences_and_bias.html#3_a_non-centered_eight_schools_implementation
+
+```
+
+```{r, include=FALSE}
+#construct predictor matrix
+minTau = 0.15
+
+data_list <- list(Nr = nrow(tbt_matrices),
+                  Ns = length(unique(tbt_matrices$reCode_Subject)),
+                  y=log(tbt_matrices$Local.Rate),
+                  s=tbt_matrices$reCode_Subject, 
+                  Pr_req = tbt_matrices$PR,
+                  LHStream = tbt_matrices$CatLH, 
+                  RewMagStream = tbt_matrices$RewMag,
+                  SessionTime = tbt_matrices$SessionTime,
+                  minTau = minTau)
+
+
+
+
+```
+
+
+```{r, include=FALSE}
+
+## mcmc
+
+# fit <- mod$sample(data=data_list,
+#                   seed=123,
+#                   chains=4,
+#                   parallel_chains = 4,
+#                   refresh=100,
+#                   num_samples=15000,
+#                   num_warmup=45000,
+#                   adapt_delta=0.99,
+#                   max_treedepth=30,
+#                   #step_size = 0.0005,
+#                   output_dir="E:/Dropbox/2 All of Carter's Stuff/Carter Local/BHA_Econ_Sanabria/AngelBayesOutput")
+# a <- fit$summary()
+
+
+load(paste0(data.path,"AngelBayesOutput\\Final Runs\\Short run\\Lazyrun_shortrun.RData"))
+fit$diagnostic_summary()
+data.path <- "C:\\Users\\carte\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanabria\\"
+
+```
+
+```{r}
+ sub_np <- nuts_params(fit)
+ color_scheme_set("viridis")
+
+ mcmc_draws_ <- fit$draws(variables=c("t_mu","w_mu","z_mu","Qlogit_mu","sigma_mu",
+                                     "t_delta11_mu","w_delta11_mu","z_delta11_mu","Qlogit_delta11_mu","sigma_delta11_mu",
+                                     "t_delta18_mu","w_delta18_mu","z_delta18_mu","Qlogit_delta18_mu","sigma_delta18_mu"), 
+                                      
+                         format="df")
+ 
+```
+ 
+ 
+````{r}
+ 
+ mcmc_draws_$t_beta_11_final <- mcmc_draws_$t_mu + mcmc_draws_$t_delta11_mu
+ mcmc_draws_$w_beta_11_final <- mcmc_draws_$w_mu + mcmc_draws_$w_delta11_mu
+ mcmc_draws_$z_beta_11_final <- mcmc_draws_$z_mu + mcmc_draws_$z_delta11_mu
+ mcmc_draws_$Qlogit_beta_11_final <- mcmc_draws_$Qlogit_mu + mcmc_draws_$Qlogit_delta11_mu
+ mcmc_draws_$sigma_beta_11_final <- mcmc_draws_$sigma_mu + mcmc_draws_$sigma_delta11_mu
+
+ 
+ mcmc_draws_$t_beta_18_final <- mcmc_draws_$t_mu + mcmc_draws_$t_delta11_mu + mcmc_draws_$t_delta18_mu
+ mcmc_draws_$w_beta_18_final <- mcmc_draws_$w_mu + mcmc_draws_$w_delta11_mu + mcmc_draws_$w_delta18_mu
+ mcmc_draws_$z_beta_18_final <- mcmc_draws_$z_mu + mcmc_draws_$z_delta11_mu + mcmc_draws_$z_delta18_mu
+ mcmc_draws_$Qlogit_beta_18_final <- mcmc_draws_$Qlogit_mu + mcmc_draws_$Qlogit_delta11_mu + mcmc_draws_$Qlogit_delta18_mu
+ mcmc_draws_$sigma_beta_18_final <- mcmc_draws_$sigma_mu + mcmc_draws_$sigma_delta11_mu + mcmc_draws_$sigma_delta18_mu
+
+ long_draws <- pivot_longer(mcmc_draws_,cols=c(1:15,19:28)) #:15, :28
+ change_draws <- long_draws[which(grepl("delta11|delta18",long_draws$name) & 
+                              !grepl("final",long_draws$name)),]
+ final_draws <- long_draws[which(grepl("mu|final",long_draws$name) 
+                                 & !grepl("delta",long_draws$name)),]
+ 
+ 
+   ggplot() + 
+   geom_density_ridges(data=change_draws[which(grepl("t_",change_draws$name) & 
+                                                !grepl("Qlogit",change_draws$name)),],
+                       aes(x=value,y=name))
+ 
+ 
+  ggplot() + 
+   geom_density_ridges(data=final_draws[which(grepl("t_",final_draws$name) & 
+                                                !grepl("Qlogit",final_draws$name)),],
+                       aes(x=value,y=name)) 
+ 
+ 
+ 
+  ggplot() + 
+   geom_density_ridges(data=change_draws[grepl("z",change_draws$name),],
+                       aes(x=value,y=name))
+ 
+ 
+  ggplot() + 
+   geom_density_ridges(data=final_draws[grepl("z",final_draws$name),],
+                       aes(x=value,y=name)) 
+ 
+ 
+ 
+ 
+ ggplot() + 
+   geom_density_ridges(data=change_draws[grepl("w",change_draws$name),],
+                       aes(x=value,y=name))
+ 
+ 
+  ggplot() + 
+   geom_density_ridges(data=final_draws[grepl("w",final_draws$name),],
+                       aes(x=value,y=name)) 
+  
+   ggplot() + 
+   geom_density_ridges(data=change_draws[grepl("Qlogit",change_draws$name),],
+                       aes(x=value,y=name))
+ 
+ 
+  ggplot() + 
+   geom_density_ridges(data=final_draws[grepl("Qlogit",final_draws$name),],
+                       aes(x=value,y=name)) 
+  
+     ggplot() + 
+   geom_density_ridges(data=change_draws[grepl("sigma",change_draws$name),],
+                       aes(x=value,y=name))
+ 
+ 
+  ggplot() + 
+   geom_density_ridges(data=final_draws[grepl("sigma",final_draws$name),],
+                       aes(x=value,y=name)) 
+  
+  
+
+ 
+````
+  
+
+```{r}
+
+tbt_matrices_wpredictions <- tbt_matrices
+fixed_effects <- a[c(2:31),] #16
+rmes <- a[c(32:151),] #118
+
+colnames(fixed_effects)[2]<-"mean"
+colnames(rmes)[2]<-"mean"
+
+#integer or values for LH = 0
+tbt_matrices_wpredictions$t <- 0
+tbt_matrices_wpredictions$w <- 0
+tbt_matrices_wpredictions$z <- 0
+tbt_matrices_wpredictions$Qlogit <- 0
+
+
+#columns for LH = 1 and LH = 2
+tbt_matrices_wpredictions$t_beta_11 <- 0
+tbt_matrices_wpredictions$w_beta_11 <- 0
+tbt_matrices_wpredictions$z_beta_11 <- 0
+tbt_matrices_wpredictions$Qlogit_beta_11 <- 0
+tbt_matrices_wpredictions$t_beta_18 <- 0
+tbt_matrices_wpredictions$w_beta_18 <- 0
+tbt_matrices_wpredictions$z_beta_18 <- 0
+tbt_matrices_wpredictions$Qlogit_beta_18 <- 0
+
+#fill those columns where appropriate
+tbt_matrices_wpredictions$t_beta_11[tbt_matrices_wpredictions$CatLH==1] <- 0
+tbt_matrices_wpredictions$w_beta_11[tbt_matrices_wpredictions$CatLH==1] <- 0
+tbt_matrices_wpredictions$z_beta_11[tbt_matrices_wpredictions$CatLH==1] <- 0
+tbt_matrices_wpredictions$Qlogit_beta_11[tbt_matrices_wpredictions$CatLH==1] <-0
+tbt_matrices_wpredictions$t_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
+tbt_matrices_wpredictions$w_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
+tbt_matrices_wpredictions$z_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
+tbt_matrices_wpredictions$Qlogit_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
+
+tbt_matrices_wpredictions$t_int_rme <- 0
+tbt_matrices_wpredictions$w_int_rme <- 0
+tbt_matrices_wpredictions$z_int_rme <- 0
+tbt_matrices_wpredictions$Qlogit_int_rme <- 0
+
+tbt_matrices_wpredictions$t_beta_11_rme <- 0
+tbt_matrices_wpredictions$w_beta_11_rme <- 0
+tbt_matrices_wpredictions$z_beta_11_rme <- 0
+tbt_matrices_wpredictions$Qlogit_beta_11_rme <- 0
+
+tbt_matrices_wpredictions$t_beta_18_rme <- 0
+tbt_matrices_wpredictions$w_beta_18_rme <- 0
+tbt_matrices_wpredictions$z_beta_18_rme <- 0
+tbt_matrices_wpredictions$Qlogit_beta_18_rme <- 0
+
+for (ea_subj in unique(tbt_matrices_wpredictions$reCode_Subject))
+{
+  tbt_matrices_wpredictions$t_int_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj)] <- rmes$mean[which(grepl(as.character(ea_subj),rmes$variable) & 
+                                                                                                                     grepl("t_int_rme",rmes$variable) & 
+                                                                                                                     !grepl("Qlogit_int_rme",rmes$variable))]
+  
+  tbt_matrices_wpredictions$w_int_rme[tbt_matrices_wpredictions$reCode_Subject==ea_subj] <- rmes$mean[which(grepl(as.character(ea_subj),rmes$variable) &
+                                                           grepl("w_int_rme",rmes$variable))]
+  tbt_matrices_wpredictions$z_int_rme[tbt_matrices_wpredictions$reCode_Subject==ea_subj] <- rmes$mean[which(grepl(as.character(ea_subj),rmes$variable) &
+                                                           grepl("z_int_rme",rmes$variable))]
+   tbt_matrices_wpredictions$Qlogit_int_rme[tbt_matrices_wpredictions$reCode_Subject==ea_subj] <- rmes$mean[which(grepl(as.character(ea_subj),rmes$variable) &
+                                                            grepl("Qlogit_int_rme",rmes$variable))]
+
+  tbt_matrices_wpredictions$t_beta_11_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
+                                                   tbt_matrices_wpredictions$CatLH==1)] <-
+     rmes$mean[which(grepl("t_beta_11_rme",rmes$variable) 
+                     & !grepl("Qlogit_beta_11_rme",rmes$variable))][ea_subj]
+  
+   tbt_matrices_wpredictions$w_beta_11_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
+                                                   tbt_matrices_wpredictions$CatLH==1)] <-
+     rmes$mean[which(grepl("w_beta_11_rme",rmes$variable))][ea_subj]
+  
+   tbt_matrices_wpredictions$z_beta_11_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
+                                                   tbt_matrices_wpredictions$CatLH==1)] <-
+     rmes$mean[which(grepl("z_beta_11_rme",rmes$variable))][ea_subj]
+
+   tbt_matrices_wpredictions$Qlogit_beta_11_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
+                                                   tbt_matrices_wpredictions$CatLH==1)] <-
+     rmes$mean[which(grepl("Qlogit_beta_11_rme",rmes$variable))][ea_subj]
+  
+  
+   tbt_matrices_wpredictions$t_beta_18_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
+                                                   tbt_matrices_wpredictions$CatLH==2)] <- rmes$mean[which(grepl("t_beta_11_rme",rmes$variable) 
+                     & !grepl("Qlogit_beta_11_rme",rmes$variable))][ea_subj] + 
+     rmes$mean[which(grepl("t_beta_18_rme",rmes$variable) & 
+                       !grepl("Qlogit_beta_18_rme",rmes$variable))][ea_subj]
+   
+   tbt_matrices_wpredictions$w_beta_18_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj & 
+                                                   tbt_matrices_wpredictions$CatLH==2)] <- rmes$mean[which(grepl("w_beta_11_rme",rmes$variable))][ea_subj] + 
+     rmes$mean[which(grepl("w_beta_18_rme",rmes$variable))][ea_subj]
+   
+   tbt_matrices_wpredictions$z_beta_18_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
+                                                   tbt_matrices_wpredictions$CatLH==2)] <- rmes$mean[which(grepl("z_beta_11_rme",rmes$variable))][ea_subj] + 
+     rmes$mean[which(grepl("z_beta_18_rme",rmes$variable))][ea_subj]
+  
+   tbt_matrices_wpredictions$Qlogit_beta_18_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj & 
+                                                   tbt_matrices_wpredictions$CatLH==2)] <-
+     rmes$mean[which(grepl("Qlogit_beta_18_rme",rmes$variable))][ea_subj] + rmes$mean[which(grepl("Qlogit_beta_11_rme",rmes$variable))][ea_subj]
+}
+
+tbt_matrices_wpredictions$t_final <- (tbt_matrices_wpredictions$t +  tbt_matrices_wpredictions$t_int_rme) +
+  (tbt_matrices_wpredictions$t_beta_11 + tbt_matrices_wpredictions$t_beta_11_rme) + 
+  (tbt_matrices_wpredictions$t_beta_18 + tbt_matrices_wpredictions$t_beta_11_rme) 
+
+tbt_matrices_wpredictions$w_final <- (tbt_matrices_wpredictions$w +  tbt_matrices_wpredictions$w_int_rme) +
+  (tbt_matrices_wpredictions$w_beta_11 + tbt_matrices_wpredictions$w_beta_11_rme) + 
+  (tbt_matrices_wpredictions$w_beta_18 + tbt_matrices_wpredictions$w_beta_18_rme)
+
+tbt_matrices_wpredictions$z_final <- (tbt_matrices_wpredictions$z +  tbt_matrices_wpredictions$z_int_rme) +
+  (tbt_matrices_wpredictions$z_beta_11 + tbt_matrices_wpredictions$z_beta_11_rme) + 
+  (tbt_matrices_wpredictions$z_beta_18 + tbt_matrices_wpredictions$z_beta_18_rme)
+
+tbt_matrices_wpredictions$Qplus_final <- (tbt_matrices_wpredictions$Qlogit +  tbt_matrices_wpredictions$Qlogit_int_rme) +
+  (tbt_matrices_wpredictions$Qlogit_beta_11 + tbt_matrices_wpredictions$Qlogit_beta_11_rme) + 
+  (tbt_matrices_wpredictions$Qlogit_beta_18 + tbt_matrices_wpredictions$Qlogit_beta_18_rme)
+
+tbt_matrices_wpredictions$t_final <- exp(tbt_matrices_wpredictions$t_final)+minTau
+tbt_matrices_wpredictions$w_final <- exp(tbt_matrices_wpredictions$w_final)
+tbt_matrices_wpredictions$z_final <- exp(tbt_matrices_wpredictions$z_final)
+tbt_matrices_wpredictions$Qlogit_final <- exp(tbt_matrices_wpredictions$Qplus_final)/(exp(tbt_matrices_wpredictions$Qplus_final)+1)
+
+
+tbt_matrices_wpredictions$upper <- tbt_matrices_wpredictions$SessionTime*((tbt_matrices_wpredictions$z_final*((1/tbt_matrices_wpredictions$t_final)^2)+1)/(tbt_matrices_wpredictions$z_final*(1/tbt_matrices_wpredictions$t_final)+tbt_matrices_wpredictions$t_final))
+  
+  
+tbt_matrices_wpredictions$Qplus_final <- tbt_matrices_wpredictions$upper*tbt_matrices_wpredictions$Qlogit_final
+#tbt_matrices_wpredictions$Qplus_final <- 100000*tbt_matrices_wpredictions$Qlogit_final
+
+
+tbt_matrices_wpredictions$Demand_predictions <- 0
+tbt_matrices_wpredictions$Bn_predictions <- 0
+
+tbt_matrices_wpredictions$Demand_predictions <- Sanabria_BHEcon_Lazy(tbt_matrices_wpredictions$t_final,
+                                                            tbt_matrices_wpredictions$z_final,
+                                                            tbt_matrices_wpredictions$w_final,
+                                                            tbt_matrices_wpredictions$Qplus_final,
+                                                            tbt_matrices_wpredictions$PR,
+                                                            tbt_matrices_wpredictions$RewMag,
+                                                            tbt_matrices_wpredictions$SessionTime)[[1]]
+
+tbt_matrices_wpredictions$Bn_predictions <- Sanabria_BHEcon_Lazy(tbt_matrices_wpredictions$t_final,
+                                                            tbt_matrices_wpredictions$z_final,
+                                                            tbt_matrices_wpredictions$w_final,
+                                                            tbt_matrices_wpredictions$Qplus_final,
+                                                            tbt_matrices_wpredictions$PR,
+                                                            tbt_matrices_wpredictions$RewMag,
+                                                            tbt_matrices_wpredictions$SessionTime)[[2]]
+
+
+
+
+```
+
+```{r}
+
+#mean estimates for each subject
+mean_persubject_persession <- tbt_matrices_wpredictions %>% group_by(Rat,LeverHeight) %>%
+  summarise(across(.cols=c(t_final:Qplus_final),.fns=c(mean))) %>% pivot_longer(cols=c(t_final_1:Qplus_final_1))
+
+
+
+ggplot() + 
+  geom_boxplot(data=mean_persubject_persession,aes(x=as.factor(LeverHeight),y=log(value))) + 
+  geom_point(data=mean_persubject_persession,aes(x=as.factor(LeverHeight),y=log(value))) + 
+  geom_line(data=mean_persubject_persession,aes(x=as.factor(LeverHeight),y=log(value),group=Rat)) + 
+  facet_wrap(~name, scales="free")
+
+
+
+```
+
+```{r}
+
+ggplot() + 
+  geom_line(data=tbt_matrices_wpredictions,aes(x=PR,y=Demand_predictions,color=as.factor(CatLH)),size=3) +
+  ylab("Demand") + 
+  xlab("Progressive Ratio")+
+  facet_wrap(~reCode_Subject)
+
+ggplot() + 
+  geom_point(data=tbt_matrices_wpredictions, aes(x=PR,y=log(Local.Rate),color=as.factor(CatLH)),size=2) + 
+  geom_line(data=OverSessions,aes(x=PR,y=log(Local.Rate),color=as.factor(CatLH)),size=1) +
+  geom_line(data=tbt_matrices_wpredictions,aes(x=PR,y=log(Bn_predictions),color=as.factor(CatLH)),size=3) +
+  ylab("Local Rate") + 
+  xlab("Progressive Ratio")+
+  facet_wrap(~reCode_Subject)
+
+
+ggplot() + 
+  geom_point(data=tbt_matrices_wpredictions, aes(x=PR,y=Local.Rate,color=as.factor(CatLH)),size=2) + 
+  geom_line(data=OverSessions,aes(x=PR,y=Local.Rate,color=as.factor(CatLH)),size=1) +
+  geom_line(data=tbt_matrices_wpredictions,aes(x=PR,y=Bn_predictions,color=as.factor(CatLH)),size=3) +
+  ylab("Local Rate") + 
+  xlab("Progressive Ratio")+
+  facet_wrap(~reCode_Subject)
+
+
+
+
+```
+```{r}
+
+#Median and 95% CI
+summary_change <- change_draws %>% group_by(name) %>% 
+  summarise(medianDiff = median(value),
+            lowerLim = quantile(value,0.05), 
+            upperLim = quantile(value,0.95))
+
+summary_change
+write.csv(summary_change,paste0(data.path,"summary_posteriorDifferences.csv"))
+
+summary_perCondition <- mean_persubject_persession %>% group_by(LeverHeight,name) %>%
+  summarise(meanFinal = median(value), 
+            iqr = quantile(value,0.75)-quantile(value,0.25))
+summary_perCondition
+write.csv(summary_perCondition,paste0(data.path,"summary_perCondition.csv"))
+
+```
+
+# PUBLICATION QUALITY FIGURES
+
+
+```{r}
+
+#Figure 2: Mean fit to Mean Local Rate
+
+summary_forFig <- tbt_matrices_wpredictions %>% group_by(Rat,CatLH,PR) %>% summarise(across(.cols=c(Local.Rate,Bn_predictions),.fns=c(mean,sd)))
+colnames(summary_forFig)<-c("Rat","CatLH","PR","Local.Rate_mu","Local.Rate_sigma","Bn_predictions_mu","Bn_predictions_sigma")
+summary_forFig$RatLabel <- paste0("Rat #",summary_forFig$Rat)
+summary_forFig$RatLabel <- factor(summary_forFig$RatLabel, levels = unique(summary_forFig$RatLabel))
+summary_forFig$CatLH[summary_forFig$CatLH==2]<-18
+summary_forFig$CatLH[summary_forFig$CatLH==1]<-11
+summary_forFig$CatLH[summary_forFig$CatLH==0]<-1
+
+
+ggplot(data=summary_forFig) + 
+  geom_point( aes(x=PR,y=Local.Rate_mu,fill=as.factor(CatLH),shape=as.factor(CatLH)), 
+              color="black",pch=21,size=1.5) +
+  geom_line(aes(x=PR,y=Bn_predictions_mu, linetype=as.factor(CatLH)),size=1) + 
+  scale_fill_manual(values=c("black","grey","white"))+ 
+  facet_wrap(~RatLabel) + 
+  ggthemes::theme_tufte() + 
+  ylab("Local Responses / second") + 
+  xlab("FR Requirement") + 
+  labs(fill="Lever Height (cm)",linetype="Lever Height (cm)")
+
+
+ggsave(paste0(data.path,"AngelBayesOutput\\Final Runs\\Short run\\figures\\model_fit.tiff"),bg="white")
+
+write.csv(summary_forFig, paste0(data.path,"model_fits.csv"))
+
+
+#Figure 3: W and z with posterior deltas
+
+boxplots <- ggplot() + 
+  geom_boxplot(data=mean_persubject_persession[which(grepl("w_final_1|z_final_1",mean_persubject_persession$name)),],
+               aes(x=as.factor(LeverHeight),y=log(value),fill=as.factor(LeverHeight))) + 
+  geom_point(data=mean_persubject_persession[which(grepl("w_final_1|z_final_1",mean_persubject_persession$name)),],
+             aes(x=as.factor(LeverHeight),y=log(value),fill=as.factor(LeverHeight)),color="black") + 
+  geom_line(data=mean_persubject_persession[which(grepl("w_final_1|z_final_1",mean_persubject_persession$name)),],
+            aes(x=as.factor(LeverHeight),y=log(value),group=Rat)) + 
+  scale_fill_manual(values=c("black","grey","white"))+ 
+  facet_wrap(~name, scales="free", 
+             labeller=labeller(.cols=c(w_final_1 = "w",z_final_1 = "z"))) + 
+  ggthemes::theme_tufte()+
+  ylab("Natural Log Estimate") + 
+  xlab("Lever Height (cm)") + 
+  labs(fill="Lever Height (cm)")
+
+
+w_change <-   ggplot() + 
+   geom_density_ridges(data=change_draws[grepl("w",change_draws$name),],
+                       aes(x=value,y=name,fill=name)) + 
+  geom_vline(data=change_draws[grepl("w",change_draws$name),],
+             aes(xintercept = 0)) + 
+  scale_fill_discrete(name="Condition Change", 
+                       labels=c("1->11 cm","11->18 cm"), 
+                      type = c("grey","white")) + 
+  ggthemes::theme_tufte()+
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank())+  xlim(-5,2.5) + 
+  ylab("Difference Estimate") + 
+  xlab("Estimate") + 
+  ggtitle("Change in w")
+
+z_change <-   ggplot() + 
+   geom_density_ridges(data=change_draws[grepl("z",change_draws$name),],
+                       aes(x=value,y=name,fill=name)) + 
+  geom_vline(data=change_draws[grepl("z",change_draws$name),],
+             aes(xintercept = 0)) + 
+  scale_fill_discrete(name="Condition Change", 
+                       labels=c("1->11 cm","11->18 cm"), 
+                      type = c("grey","white")) + 
+  ggthemes::theme_tufte()+
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank())+
+  xlim(-5,2.5) + 
+  ylab("Difference Estimate") + 
+  xlab("Estimate") + 
+  ggtitle("Change in z")
+
+z_change_ridgeline <-   ggplot() + 
+    geom_density_ridges(data=change_draws[grepl("z",change_draws$name),],
+                       aes(x=value,y=name,fill=name), panel_scaling = FALSE) + 
+  geom_vline(data=change_draws[grepl("z",change_draws$name),],
+             aes(xintercept = 0)) + 
+  scale_fill_discrete(name="Condition Change", 
+                       labels=c("1->11 cm","11->18 cm"), 
+                      type = c("grey","white")) + 
+  ggthemes::theme_tufte()+
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank())+
+  xlim(-5,2.5) + 
+  ylab("Difference Estimate") + 
+  xlab("Estimate") + 
+  ggtitle("Change in z")
+
+
+
+patched_plot <- (w_change + z_change) / boxplots + plot_layout(guides="collect")
+patched_plot
+ggsave(paste0(data.path,"AngelBayesOutput\\Final Runs\\Short run\\figures\\w_and_z.tiff"),bg="white")
+
+
+#Appendix Figures
+
+
+
+```
+
+# For Angel to Plot
+
+```{r}
+
+save_boxplot <- mean_persubject_persession[which(grepl("w_final_1|z_final_1",mean_persubject_persession$name)),]
+save_boxplot <- save_boxplot %>% pivot_wider(values_from = value, names_from = c(name,LeverHeight))
+write.csv(save_boxplot, paste0(data.path,"boxplot_data.csv"))
+
+save_dists <- change_draws
+save_dists <- change_draws %>% pivot_wider(values_from = value, names_from = name)
+save_dists <- save_dists[,colnames(save_dists)[grepl("z_delta|w_delta",colnames(save_dists))],]
+write.csv(save_dists,paste0(data.path,"dist_data.csv"))
+
+```
+
+
+
+
+
+
