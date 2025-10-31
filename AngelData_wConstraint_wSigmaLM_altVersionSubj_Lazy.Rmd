@@ -50,21 +50,22 @@ Sanabria_BHEcon_Lazy <- function(t,z,w,Qplus,PR,RM,ST)
 
 }
 
-theme_origin_axes <- function(base_size = 12, axis_lwd = 0.6, tick_len_pt = 3){
+theme_origin_axes <- function(base_size = 12, axis_lwd = 0.6, tick_len_pt = 3,
+                              remove_facet_labels = FALSE,
+                              remove_titles = TRUE) {
   theme_classic(base_size = base_size) +
     theme(
-      # axes only (no panel border)
-      panel.border       = element_blank(),
-      axis.line.x        = element_line(colour = "black", linewidth = axis_lwd),
-      axis.line.y        = element_line(colour = "black", linewidth = axis_lwd),
-
-      # tidy ticks
-      axis.ticks         = element_line(colour = "black", linewidth = axis_lwd),
-      axis.ticks.length  = unit(tick_len_pt, "pt"),
-
-      # no grids
-      panel.grid.major   = element_blank(),
-      panel.grid.minor   = element_blank()
+      panel.border      = element_blank(),
+      axis.line.x       = element_line(colour = "black", linewidth = axis_lwd),
+      axis.line.y       = element_line(colour = "black", linewidth = axis_lwd),
+      axis.ticks        = element_line(colour = "black", linewidth = axis_lwd),
+      axis.ticks.length = grid::unit(tick_len_pt, "pt"),
+      panel.grid        = element_blank(),
+      strip.background  = element_blank(),
+      strip.text        = if (remove_facet_labels) element_blank() else element_text(),
+      plot.title        = if (remove_titles) element_blank() else element_text(face = "bold", size = 12, hjust = 0),
+      plot.subtitle     = if (remove_titles) element_blank() else element_text(size = 10),
+      plot.caption      = if (remove_titles) element_blank() else element_text(size = 9)
     )
 }
 
