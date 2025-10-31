@@ -1,5 +1,5 @@
 # APSD_LeverHeight_BHA
-This repository contains the code and data from Jiminez, Covarribus, Daniels, & Sanabria (under review).
+This repository contains the code and data from Jiminez, Covarrubias, Daniels, & Sanabria (under review). Lever height affects performance in a progressive-ratio schedule: Affordance and utility maximization analyses. 
 
 Current Files:
 1. AngelData_wConstraint_wSigmaLM_altVersionSubj_Lazy.Rmd for running the full Bayesian analysis
