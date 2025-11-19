@@ -21,7 +21,7 @@ library(ggtext)
 library(ggprism)
 library(Hmisc)
 library(ggthemes)
-
+library(rstatix)
 ```
 
 
@@ -29,7 +29,7 @@ library(ggthemes)
 
 #datapath and functions
 
-data.path <- "E:\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanabria\\"
+data.path <- "C:\\Users\\carte\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanabria\\"
 
 
 Sanabria_BHEcon <- function(t,z,w,Qplus,PR,RM,ST) 
@@ -86,9 +86,7 @@ for (subj in unique(tbt_matrices$Rat))
 }
 
 tbt_matrices$LeverRecode <- tbt_matrices$LeverHeight - min(tbt_matrices$LeverHeight)
-
 tbt_matrices$RewMag <- 1
-
 tbt_matrices$CatLH <- 0
 tbt_matrices$CatLH[tbt_matrices$LeverHeight==11]<-1
 tbt_matrices$CatLH[tbt_matrices$LeverHeight==18]<-2
@@ -98,19 +96,16 @@ tbt_matrices$cumTime <- ave(tbt_matrices$Time,tbt_matrices$Rat,
                                 tbt_matrices$Session,tbt_matrices$LeverHeight,
                                 FUN=cumsum)
 
-#for now only include through the last non zero but not necessairily completed PR
+# only include through the last completed PR
 tbt_matrices <- tbt_matrices[tbt_matrices$Completed==1,]
 tbt_matrices <- tbt_matrices[tbt_matrices$Local.Rate!=0,]
-tbt_matrices$SessionTime <- 30
+tbt_matrices$SessionTime <- ave(tbt_matrices$cumTime,tbt_matrices$Rat,tbt_matrices$Session,tbt_matrices$LeverHeight,FUN=max)/60 #set time to total time completing FR requirements, not session time
 
-#tbt_matrices <- tbt_matrices[tbt_matrices$LeverRecode==10,]
-#tbt_matrices <- tbt_matrices[tbt_matrices$CatLH==1,]
 
 OverSessions <- tbt_matrices %>% group_by(reCode_Subject,CatLH,PR,RewMag) %>% 
   summarise(across(.cols=c(Local.Rate),.fns=c(median,sd)))
 OverSessions$Local.Rate_3 <- OverSessions$Local.Rate_2 / OverSessions$Local.Rate_1
 colnames(OverSessions)[colnames(OverSessions)=="Local.Rate_1"] <- "Local.Rate"
-OverSessions$SessionTime <- 30
 
 ```
 
@@ -154,7 +149,7 @@ data {
  int<lower=1> Nr; // number of data points
  int<lower=1> Ns; // number of subjects
  vector[Nr] y; //Local Rate stream
- int[Nr] s; //subject stream
+ int<lower=1> s[Nr]; //subject stream
  vector<lower=0>[Nr] Pr_req; //Programemd PR stream
  vector<lower=0>[Nr] LHStream; //Lever height stream
  vector<lower=1>[Nr] RewMagStream; //Reward Magnitude Stream
@@ -364,13 +359,6 @@ y ~ normal(log(row_Bn),row_sigma); //sigma
 #mod <- cmdstan_model(stan_file=file.path(paste0(data.path,
 #                                                "sanabria_econ_Angeldata_revFconstrained_Altsubj.stan")))
 
-##got divergent transitions
-## potentially try making every rme scaled as described here: 
-# https://betanalpha.github.io/assets/case_studies/divergences_and_bias.html#7_original_computing_environment
-# mu + tau*rme; rme ~N(0,1); tau ~ half-cauchy(0,5)
-#also consider modeling covariance
-#https://betanalpha.github.io/assets/case_studies/divergences_and_bias.html#3_a_non-centered_eight_schools_implementation
-
 ```
 
 ```{r, include=FALSE}
@@ -397,23 +385,23 @@ data_list <- list(Nr = nrow(tbt_matrices),
 
 ## mcmc
 
-# fit <- mod$sample(data=data_list,
-#                   seed=123,
-#                   chains=4,
-#                   parallel_chains = 4,
-#                   refresh=100,
-#                   num_samples=15000,
-#                   num_warmup=45000,
-#                   adapt_delta=0.99,
-#                   max_treedepth=30,
-#                   #step_size = 0.0005,
-#                   output_dir="E:/Dropbox/2 All of Carter's Stuff/Carter Local/BHA_Econ_Sanabria/AngelBayesOutput")
-# a <- fit$summary()
+#fit <- mod$sample(data=data_list,
+#                  seed=123,
+#                  chains=4,
+#                  parallel_chains = 4,
+#                  refresh=100,
+#                  num_samples=5000,
+#                  num_warmup=5000,
+#                  adapt_delta=0.99,
+#                  max_treedepth=30,
+#                  #step_size = 0.0005,
+#                  output_dir="E:/Dropbox/2 All of Carter's Stuff/Carter Local/BHA_Econ_Sanabria/AngelBayesOutput")
+#a <- fit$summary()
 
 
 load(paste0(data.path,"AngelBayesOutput\\Final Runs\\Short run\\Lazyrun_shortrun.RData"))
 fit$diagnostic_summary()
-data.path <- "E:\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanabria\\"
+data.path <- "C:\\Users\\carte\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanabria\\"
 
 ```
 
@@ -452,58 +440,58 @@ data.path <- "E:\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanab
                                  & !grepl("delta",long_draws$name)),]
  
  
-   ggplot() + 
-   geom_density_ridges(data=change_draws[which(grepl("t_",change_draws$name) & 
-                                                !grepl("Qlogit",change_draws$name)),],
-                       aes(x=value,y=name))
- 
- 
-  ggplot() + 
-   geom_density_ridges(data=final_draws[which(grepl("t_",final_draws$name) & 
-                                                !grepl("Qlogit",final_draws$name)),],
-                       aes(x=value,y=name)) 
- 
- 
- 
-  ggplot() + 
-   geom_density_ridges(data=change_draws[grepl("z",change_draws$name),],
-                       aes(x=value,y=name))
- 
- 
-  ggplot() + 
-   geom_density_ridges(data=final_draws[grepl("z",final_draws$name),],
-                       aes(x=value,y=name)) 
- 
- 
- 
- 
- ggplot() + 
-   geom_density_ridges(data=change_draws[grepl("w",change_draws$name),],
-                       aes(x=value,y=name))
- 
- 
-  ggplot() + 
-   geom_density_ridges(data=final_draws[grepl("w",final_draws$name),],
-                       aes(x=value,y=name)) 
-  
-   ggplot() + 
-   geom_density_ridges(data=change_draws[grepl("Qlogit",change_draws$name),],
-                       aes(x=value,y=name))
- 
- 
-  ggplot() + 
-   geom_density_ridges(data=final_draws[grepl("Qlogit",final_draws$name),],
-                       aes(x=value,y=name)) 
-  
-     ggplot() + 
-   geom_density_ridges(data=change_draws[grepl("sigma",change_draws$name),],
-                       aes(x=value,y=name))
- 
- 
-  ggplot() + 
-   geom_density_ridges(data=final_draws[grepl("sigma",final_draws$name),],
-                       aes(x=value,y=name)) 
-  
+ #   ggplot() + 
+ #   geom_density_ridges(data=change_draws[which(grepl("t_",change_draws$name) & 
+ #                                                !grepl("Qlogit",change_draws$name)),],
+ #                       aes(x=value,y=name))
+ # 
+ # 
+ #  ggplot() + 
+ #   geom_density_ridges(data=final_draws[which(grepl("t_",final_draws$name) & 
+ #                                                !grepl("Qlogit",final_draws$name)),],
+ #                       aes(x=value,y=name)) 
+ # 
+ # 
+ # 
+ #  ggplot() + 
+ #   geom_density_ridges(data=change_draws[grepl("z",change_draws$name),],
+ #                       aes(x=value,y=name))
+ # 
+ # 
+ #  ggplot() + 
+ #   geom_density_ridges(data=final_draws[grepl("z",final_draws$name),],
+ #                       aes(x=value,y=name)) 
+ # 
+ # 
+ # 
+ # 
+ # ggplot() + 
+ #   geom_density_ridges(data=change_draws[grepl("w",change_draws$name),],
+ #                       aes(x=value,y=name))
+ # 
+ # 
+ #  ggplot() + 
+ #   geom_density_ridges(data=final_draws[grepl("w",final_draws$name),],
+ #                       aes(x=value,y=name)) 
+ #  
+ #   ggplot() + 
+ #   geom_density_ridges(data=change_draws[grepl("Qlogit",change_draws$name),],
+ #                       aes(x=value,y=name))
+ # 
+ # 
+ #  ggplot() + 
+ #   geom_density_ridges(data=final_draws[grepl("Qlogit",final_draws$name),],
+ #                       aes(x=value,y=name)) 
+ #  
+ #     ggplot() + 
+ #   geom_density_ridges(data=change_draws[grepl("sigma",change_draws$name),],
+ #                       aes(x=value,y=name))
+ # 
+ # 
+ #  ggplot() + 
+ #   geom_density_ridges(data=final_draws[grepl("sigma",final_draws$name),],
+ #                       aes(x=value,y=name)) 
+ #  
   
 
  
@@ -513,8 +501,8 @@ data.path <- "E:\\Dropbox\\2 All of Carter's Stuff\\Carter Local\\BHA_Econ_Sanab
 ```{r}
 
 tbt_matrices_wpredictions <- tbt_matrices
-fixed_effects <- a[c(2:31),] #16
-rmes <- a[c(32:151),] #118
+fixed_effects <- a[c(2:31),] 
+rmes <- a[c(32:151),] 
 
 colnames(fixed_effects)[2]<-"mean"
 colnames(rmes)[2]<-"mean"
@@ -524,6 +512,7 @@ tbt_matrices_wpredictions$t <- 0
 tbt_matrices_wpredictions$w <- 0
 tbt_matrices_wpredictions$z <- 0
 tbt_matrices_wpredictions$Qlogit <- 0
+tbt_matrices_wpredictions$sigma <- 0
 
 
 #columns for LH = 1 and LH = 2
@@ -531,38 +520,48 @@ tbt_matrices_wpredictions$t_beta_11 <- 0
 tbt_matrices_wpredictions$w_beta_11 <- 0
 tbt_matrices_wpredictions$z_beta_11 <- 0
 tbt_matrices_wpredictions$Qlogit_beta_11 <- 0
+tbt_matrices_wpredictions$sigma_beta_11 <- 0
+
 tbt_matrices_wpredictions$t_beta_18 <- 0
 tbt_matrices_wpredictions$w_beta_18 <- 0
 tbt_matrices_wpredictions$z_beta_18 <- 0
 tbt_matrices_wpredictions$Qlogit_beta_18 <- 0
+tbt_matrices_wpredictions$sigma_beta_18 <- 0
 
 #fill those columns where appropriate
 tbt_matrices_wpredictions$t_beta_11[tbt_matrices_wpredictions$CatLH==1] <- 0
 tbt_matrices_wpredictions$w_beta_11[tbt_matrices_wpredictions$CatLH==1] <- 0
 tbt_matrices_wpredictions$z_beta_11[tbt_matrices_wpredictions$CatLH==1] <- 0
 tbt_matrices_wpredictions$Qlogit_beta_11[tbt_matrices_wpredictions$CatLH==1] <-0
+tbt_matrices_wpredictions$sigma_beta_11[tbt_matrices_wpredictions$CatLH==1] <-0
+
 tbt_matrices_wpredictions$t_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
 tbt_matrices_wpredictions$w_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
 tbt_matrices_wpredictions$z_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
 tbt_matrices_wpredictions$Qlogit_beta_18[tbt_matrices_wpredictions$CatLH==2] <- 0
+tbt_matrices_wpredictions$sigma_beta_18[tbt_matrices_wpredictions$CatLH==1] <-0
 
 tbt_matrices_wpredictions$t_int_rme <- 0
 tbt_matrices_wpredictions$w_int_rme <- 0
 tbt_matrices_wpredictions$z_int_rme <- 0
 tbt_matrices_wpredictions$Qlogit_int_rme <- 0
+tbt_matrices_wpredictions$sigma_int_rme <- 0
 
 tbt_matrices_wpredictions$t_beta_11_rme <- 0
 tbt_matrices_wpredictions$w_beta_11_rme <- 0
 tbt_matrices_wpredictions$z_beta_11_rme <- 0
 tbt_matrices_wpredictions$Qlogit_beta_11_rme <- 0
+tbt_matrices_wpredictions$sigma_beta_11_rme <- 0
 
 tbt_matrices_wpredictions$t_beta_18_rme <- 0
 tbt_matrices_wpredictions$w_beta_18_rme <- 0
 tbt_matrices_wpredictions$z_beta_18_rme <- 0
 tbt_matrices_wpredictions$Qlogit_beta_18_rme <- 0
+tbt_matrices_wpredictions$sigma_beta_18_rme <- 0
 
 for (ea_subj in unique(tbt_matrices_wpredictions$reCode_Subject))
 {
+  #intercept (1 cm)
   tbt_matrices_wpredictions$t_int_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj)] <- rmes$mean[which(grepl(as.character(ea_subj),rmes$variable) & 
                                                                                                                      grepl("t_int_rme",rmes$variable) & 
                                                                                                                      !grepl("Qlogit_int_rme",rmes$variable))]
@@ -573,7 +572,10 @@ for (ea_subj in unique(tbt_matrices_wpredictions$reCode_Subject))
                                                            grepl("z_int_rme",rmes$variable))]
    tbt_matrices_wpredictions$Qlogit_int_rme[tbt_matrices_wpredictions$reCode_Subject==ea_subj] <- rmes$mean[which(grepl(as.character(ea_subj),rmes$variable) &
                                                             grepl("Qlogit_int_rme",rmes$variable))]
+      tbt_matrices_wpredictions$sigma_int_rme[tbt_matrices_wpredictions$reCode_Subject==ea_subj] <- rmes$mean[which(grepl(as.character(ea_subj),rmes$variable) &
+                                                            grepl("sigma_int_rme",rmes$variable))]
 
+  #11 cm
   tbt_matrices_wpredictions$t_beta_11_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
                                                    tbt_matrices_wpredictions$CatLH==1)] <-
      rmes$mean[which(grepl("t_beta_11_rme",rmes$variable) 
@@ -591,7 +593,11 @@ for (ea_subj in unique(tbt_matrices_wpredictions$reCode_Subject))
                                                    tbt_matrices_wpredictions$CatLH==1)] <-
      rmes$mean[which(grepl("Qlogit_beta_11_rme",rmes$variable))][ea_subj]
   
-  
+     tbt_matrices_wpredictions$sigma_beta_11_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
+                                                   tbt_matrices_wpredictions$CatLH==1)] <-
+     rmes$mean[which(grepl("sigma_beta_11_rme",rmes$variable))][ea_subj]
+   
+  #18 cm
    tbt_matrices_wpredictions$t_beta_18_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj &
                                                    tbt_matrices_wpredictions$CatLH==2)] <- rmes$mean[which(grepl("t_beta_11_rme",rmes$variable) 
                      & !grepl("Qlogit_beta_11_rme",rmes$variable))][ea_subj] + 
@@ -609,6 +615,9 @@ for (ea_subj in unique(tbt_matrices_wpredictions$reCode_Subject))
    tbt_matrices_wpredictions$Qlogit_beta_18_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj & 
                                                    tbt_matrices_wpredictions$CatLH==2)] <-
      rmes$mean[which(grepl("Qlogit_beta_18_rme",rmes$variable))][ea_subj] + rmes$mean[which(grepl("Qlogit_beta_11_rme",rmes$variable))][ea_subj]
+      tbt_matrices_wpredictions$sigma_beta_18_rme[which(tbt_matrices_wpredictions$reCode_Subject==ea_subj & 
+                                                   tbt_matrices_wpredictions$CatLH==2)] <-
+     rmes$mean[which(grepl("sigma_beta_18_rme",rmes$variable))][ea_subj] + rmes$mean[which(grepl("sigma_beta_11_rme",rmes$variable))][ea_subj]
 }
 
 tbt_matrices_wpredictions$t_final <- (tbt_matrices_wpredictions$t +  tbt_matrices_wpredictions$t_int_rme) +
@@ -627,17 +636,21 @@ tbt_matrices_wpredictions$Qplus_final <- (tbt_matrices_wpredictions$Qlogit +  tb
   (tbt_matrices_wpredictions$Qlogit_beta_11 + tbt_matrices_wpredictions$Qlogit_beta_11_rme) + 
   (tbt_matrices_wpredictions$Qlogit_beta_18 + tbt_matrices_wpredictions$Qlogit_beta_18_rme)
 
+tbt_matrices_wpredictions$sigma_final <- (tbt_matrices_wpredictions$sigma +  tbt_matrices_wpredictions$sigma_int_rme) +
+  (tbt_matrices_wpredictions$sigma_beta_11 + tbt_matrices_wpredictions$sigma_beta_11_rme) + 
+  (tbt_matrices_wpredictions$sigma_beta_18 + tbt_matrices_wpredictions$sigma_beta_18_rme)
+
 tbt_matrices_wpredictions$t_final <- exp(tbt_matrices_wpredictions$t_final)+minTau
 tbt_matrices_wpredictions$w_final <- exp(tbt_matrices_wpredictions$w_final)
 tbt_matrices_wpredictions$z_final <- exp(tbt_matrices_wpredictions$z_final)
 tbt_matrices_wpredictions$Qlogit_final <- exp(tbt_matrices_wpredictions$Qplus_final)/(exp(tbt_matrices_wpredictions$Qplus_final)+1)
+tbt_matrices_wpredictions$sigma_final <- exp(tbt_matrices_wpredictions$sigma_final)
 
 
 tbt_matrices_wpredictions$upper <- tbt_matrices_wpredictions$SessionTime*((tbt_matrices_wpredictions$z_final*((1/tbt_matrices_wpredictions$t_final)^2)+1)/(tbt_matrices_wpredictions$z_final*(1/tbt_matrices_wpredictions$t_final)+tbt_matrices_wpredictions$t_final))
   
   
 tbt_matrices_wpredictions$Qplus_final <- tbt_matrices_wpredictions$upper*tbt_matrices_wpredictions$Qlogit_final
-#tbt_matrices_wpredictions$Qplus_final <- 100000*tbt_matrices_wpredictions$Qlogit_final
 
 
 tbt_matrices_wpredictions$Demand_predictions <- 0
@@ -668,7 +681,7 @@ tbt_matrices_wpredictions$Bn_predictions <- Sanabria_BHEcon_Lazy(tbt_matrices_wp
 
 #mean estimates for each subject
 mean_persubject_persession <- tbt_matrices_wpredictions %>% group_by(Rat,LeverHeight) %>%
-  summarise(across(.cols=c(t_final:Qplus_final),.fns=c(mean))) %>% pivot_longer(cols=c(t_final_1:Qplus_final_1))
+  summarise(across(.cols=c(t_final:sigma_final),.fns=c(mean))) %>% pivot_longer(cols=c(t_final_1:sigma_final_1))
 
 
 
@@ -684,35 +697,6 @@ ggplot() +
 
 ```{r}
 
-ggplot() + 
-  geom_line(data=tbt_matrices_wpredictions,aes(x=PR,y=Demand_predictions,color=as.factor(CatLH)),size=3) +
-  ylab("Demand") + 
-  xlab("Progressive Ratio")+
-  facet_wrap(~reCode_Subject)
-
-ggplot() + 
-  geom_point(data=tbt_matrices_wpredictions, aes(x=PR,y=log(Local.Rate),color=as.factor(CatLH)),size=2) + 
-  geom_line(data=OverSessions,aes(x=PR,y=log(Local.Rate),color=as.factor(CatLH)),size=1) +
-  geom_line(data=tbt_matrices_wpredictions,aes(x=PR,y=log(Bn_predictions),color=as.factor(CatLH)),size=3) +
-  ylab("Local Rate") + 
-  xlab("Progressive Ratio")+
-  facet_wrap(~reCode_Subject)
-
-
-ggplot() + 
-  geom_point(data=tbt_matrices_wpredictions, aes(x=PR,y=Local.Rate,color=as.factor(CatLH)),size=2) + 
-  geom_line(data=OverSessions,aes(x=PR,y=Local.Rate,color=as.factor(CatLH)),size=1) +
-  geom_line(data=tbt_matrices_wpredictions,aes(x=PR,y=Bn_predictions,color=as.factor(CatLH)),size=3) +
-  ylab("Local Rate") + 
-  xlab("Progressive Ratio")+
-  facet_wrap(~reCode_Subject)
-
-
-
-
-```
-```{r}
-
 #Median and 95% CI
 summary_change <- change_draws %>% group_by(name) %>% 
   summarise(medianDiff = median(value),
@@ -724,21 +708,81 @@ write.csv(summary_change,paste0(data.path,"summary_posteriorDifferences.csv"))
 
 summary_perCondition <- mean_persubject_persession %>% group_by(LeverHeight,name) %>%
   summarise(meanFinal = median(value), 
-            iqr = quantile(value,0.75)-quantile(value,0.25))
+            iqr = quantile(value,0.75)-quantile(value,0.25), 
+            lowerQuantile = quantile(value,0.25), 
+            upperQuantile = quantile(value,0.75))
 summary_perCondition
 write.csv(summary_perCondition,paste0(data.path,"summary_perCondition.csv"))
 
 ```
 
+```{r}
+
+#test correlation
+mean_persubject_persession$LogValue <- log(mean_persubject_persession$value)
+LHcat1 <- mean_persubject_persession %>% filter(LeverHeight==1) %>% 
+  select(LogValue,LeverHeight ,name,Rat) %>%
+  pivot_wider(values_from=LogValue,names_from=name)
+cor_mat(LHcat1[,c(3:ncol(LHcat1))])
+cor_pmat(LHcat1[,c(3:ncol(LHcat1))])
+pmatDf <- cor_pmat(LHcat1[,c(3:ncol(LHcat1))])
+pmatDf <- pmatDf[,c(2:ncol(pmatDf))]
+lrTri <- lower.tri(pmatDf)
+pmatDf[lrTri] <- NA
+pmatDf <- as.data.frame(pmatDf)
+pmatDf$rowname <- colnames(pmatDf)
+pmatDf <- pmatDf %>% pivot_longer(cols=t_final_1:sigma_final_1)
+pmatDfCat1 <- pmatDf[pmatDf$rowname!=pmatDf$name,]
+pmatDfCat1$LeverHeight <-1
+
+LHcat11 <- mean_persubject_persession %>% filter(LeverHeight==11) %>% 
+  select(LogValue,LeverHeight ,name,Rat) %>%
+  pivot_wider(values_from=LogValue,names_from=name)
+cor_mat(LHcat11[,c(3:ncol(LHcat11))])
+cor_pmat(LHcat11[,c(3:ncol(LHcat11))])
+pmatDf <- cor_pmat(LHcat11[,c(3:ncol(LHcat11))])
+pmatDf <- pmatDf[,c(2:ncol(pmatDf))]
+lrTri <- lower.tri(pmatDf)
+pmatDf[lrTri] <- NA
+pmatDf <- as.data.frame(pmatDf)
+pmatDf$rowname <- colnames(pmatDf)
+pmatDf <- pmatDf %>% pivot_longer(cols=t_final_1:sigma_final_1)
+pmatDfCat11 <- pmatDf[pmatDf$rowname!=pmatDf$name,]
+pmatDfCat11$LeverHeight <- 11
+
+LHcat18 <- mean_persubject_persession %>% filter(LeverHeight==18) %>% 
+  select(LogValue,LeverHeight ,name,Rat) %>%
+  pivot_wider(values_from=LogValue,names_from=name)
+cor_mat(LHcat18[,c(3:ncol(LHcat18))])
+cor_pmat(LHcat18[,c(3:ncol(LHcat18))])
+pmatDf <- cor_pmat(LHcat18[,c(3:ncol(LHcat18))])
+pmatDf <- pmatDf[,c(2:ncol(pmatDf))]
+lrTri <- lower.tri(pmatDf)
+pmatDf[lrTri] <- NA
+pmatDf <- as.data.frame(pmatDf)
+pmatDf$rowname <- colnames(pmatDf)
+pmatDf <- pmatDf %>% pivot_longer(cols=t_final_1:sigma_final_1)
+pmatDfCat18 <- pmatDf[pmatDf$rowname!=pmatDf$name,]
+pmatDfCat18$LeverHeight <- 18
+
+allpmat <- rbind(pmatDfCat1,pmatDfCat11,pmatDfCat18)
+allpmat <- allpmat[complete.cases(allpmat),]
+allpmat$pAdjust <- p.adjust((allpmat$value),method="fdr")
+min(p.adjust((allpmat$value),method="fdr"))
+allpmat
+```
+
 # PUBLICATION QUALITY FIGURES
 
 
-```{r}
+```{r, fig.height = 5, fig.width = 8}
 
-#Figure 2: Mean fit to Mean Local Rate
+#Figure 3: Mean fit to Mean Local Rate
 
-summary_forFig <- tbt_matrices_wpredictions %>% group_by(Rat,CatLH,PR) %>% summarise(across(.cols=c(Local.Rate,Bn_predictions),.fns=c(mean,sd)))
-colnames(summary_forFig)<-c("Rat","CatLH","PR","Local.Rate_mu","Local.Rate_sigma","Bn_predictions_mu","Bn_predictions_sigma")
+summary_forFig <- tbt_matrices_wpredictions %>% group_by(Rat,CatLH,PR) %>% summarise(across(.cols=c(Local.Rate,Bn_predictions,Demand_predictions),.fns=c(mean,sd)))
+colnames(summary_forFig)<-c("Rat","CatLH","PR","Local.Rate_mu","Local.Rate_sigma",
+                            "Bn_predictions_mu","Bn_predictions_sigma", 
+                            "Demand_predictions_mu","Demand_predictions_sigma")
 summary_forFig$RatLabel <- paste0("Rat #",summary_forFig$Rat)
 summary_forFig$RatLabel <- factor(summary_forFig$RatLabel, levels = unique(summary_forFig$RatLabel))
 summary_forFig$CatLH[summary_forFig$CatLH==2]<-18
@@ -753,7 +797,7 @@ ggplot(data=summary_forFig) +
   scale_fill_manual(values=c("black","grey","white"))+ 
   facet_wrap(~RatLabel) + 
   ggthemes::theme_tufte() + 
-  ylab("Local Responses / second") + 
+  ylab("Responses / second") + 
   xlab("FR Requirement") + 
   labs(fill="Lever Height (cm)",linetype="Lever Height (cm)")
 
@@ -763,21 +807,18 @@ ggsave(paste0(data.path,"AngelBayesOutput\\Final Runs\\Short run\\figures\\model
 write.csv(summary_forFig, paste0(data.path,"model_fits.csv"))
 
 
-#Figure 3: W and z with posterior deltas
+#Figure 4: W and z with posterior deltas
 
 boxplots <- ggplot() + 
-#  geom_boxplot(data=mean_persubject_persession[which(grepl("w_final_1|z_final_1",mean_persubject_persession$name)),],
-#               aes(x=as.factor(LeverHeight),y=log(value),fill=as.factor(LeverHeight))) + 
   geom_point(data=mean_persubject_persession[which(grepl("w_final_1|z_final_1",mean_persubject_persession$name)),],
-             aes(x=as.factor(LeverHeight),y=log(value)),color="black") + 
+             aes(x=as.factor(LeverHeight),y=value),color="black") + 
   geom_line(data=mean_persubject_persession[which(grepl("w_final_1|z_final_1",mean_persubject_persession$name)),],
-            aes(x=as.factor(LeverHeight),y=log(value),group=Rat)) + 
+            aes(x=as.factor(LeverHeight),y=value,group=Rat)) + 
   scale_fill_manual(values=c("black","grey","white"))+ 
   facet_wrap(~name, scales="free", 
              labeller=as_labeller(c(w_final_1 = "w",z_final_1 = "z"))) + 
   theme_origin_axes(remove_facet_labels=TRUE) + 
-  #ggthemes::theme_tufte()+
-  ylab("Natural Log Estimate") + 
+  ylab(expression(w == Rsp/Min ~ "; " ~ z == Min^2/Rft^2)) + 
   xlab("Lever Height (cm)") + 
   labs(fill="Lever Height (cm)")
 
@@ -798,7 +839,7 @@ w_change_ridgeline <- ggplot(data=change_draws[grepl("w",change_draws$name),],
   ggthemes::theme_tufte()+  
   xlim(-5,2.5) + 
   ylab("Density") + 
-  xlab("Difference Estimate") + 
+  xlab("Difference Estimate on Log Scale") + 
   ggtitle("Change in w") + 
   scale_fill_discrete(name="Condition Change",
                       labels=c("1","2","3"), 
@@ -861,7 +902,6 @@ patched_plot
 ggsave(paste0(data.path,"AngelBayesOutput\\Final Runs\\Short run\\figures\\w_and_z.tiff"),bg="white")
 
 
-#Appendix Figures
 
 
 
