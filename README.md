@@ -9,4 +9,4 @@ Current Files:
 Updates: 
 1. Post publication supplementary materials were added to the repo as a pdf. Pdf has track changes removed, and IQR is correctly defined as found in the R code (Q3-Q1) rather than as written in the file on the publisher website (Q2-Q1). 
 
-For questionon Bayesian analysis please email Carter at carter.wa.daniels@gmail.com 
+For questions on Bayesian analysis please email Carter at carter.wa.daniels@gmail.com 
